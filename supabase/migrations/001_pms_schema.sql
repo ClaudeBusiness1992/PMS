@@ -1,6 +1,41 @@
--- PMS Schema Migration 001
--- Ausführen im Supabase SQL Editor:
+-- PMS Schema Migration 001 (idempotent — kann mehrfach ausgeführt werden)
 -- https://supabase.com/dashboard/project/tkiqecnzjrqhrlesnjtg/sql/new
+
+-- ============================================================
+-- CLEANUP (bestehende Policies entfernen damit kein Konflikt)
+-- ============================================================
+drop policy if exists "User sieht nur eigenes Profil" on profiles;
+drop policy if exists "User kann eigenes Profil anlegen" on profiles;
+drop policy if exists "User kann eigenes Profil bearbeiten" on profiles;
+
+drop policy if exists "User sieht nur eigene Stammdaten" on stammdaten;
+drop policy if exists "User kann Stammdaten anlegen" on stammdaten;
+drop policy if exists "User kann Stammdaten bearbeiten" on stammdaten;
+
+drop policy if exists "User sieht nur eigene Mietverhaeltnisse" on mietverhaeltnisse;
+drop policy if exists "User kann Mietverhaeltnisse anlegen" on mietverhaeltnisse;
+drop policy if exists "User kann Mietverhaeltnisse bearbeiten" on mietverhaeltnisse;
+drop policy if exists "User kann Mietverhaeltnisse loeschen" on mietverhaeltnisse;
+
+drop policy if exists "User sieht nur eigene Vertraege" on vertraege;
+drop policy if exists "User kann Vertraege anlegen" on vertraege;
+drop policy if exists "User kann Vertraege bearbeiten" on vertraege;
+drop policy if exists "User kann Vertraege loeschen" on vertraege;
+
+drop policy if exists "User sieht nur eigene Dokumente" on dokumente;
+drop policy if exists "User kann Dokumente anlegen" on dokumente;
+drop policy if exists "User kann Dokumente bearbeiten" on dokumente;
+drop policy if exists "User kann Dokumente loeschen" on dokumente;
+
+drop policy if exists "User sieht Signaturen seiner Dokumente" on signaturen;
+drop policy if exists "User kann Signaturen anlegen" on signaturen;
+
+drop policy if exists "User kann eigene Dokumente hochladen" on storage.objects;
+drop policy if exists "User kann eigene Dokumente lesen" on storage.objects;
+drop policy if exists "User kann eigene Fotos hochladen" on storage.objects;
+drop policy if exists "User kann eigene Fotos lesen" on storage.objects;
+drop policy if exists "User kann eigene Signaturen hochladen" on storage.objects;
+drop policy if exists "User kann eigene Signaturen lesen" on storage.objects;
 
 -- ============================================================
 -- PROFILES
@@ -25,7 +60,6 @@ create policy "User kann eigenes Profil bearbeiten"
   on profiles for update
   using (auth.uid() = id);
 
--- Profil automatisch anlegen wenn User sich registriert
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer as $$
 begin
@@ -35,7 +69,8 @@ begin
 end;
 $$;
 
-create or replace trigger on_auth_user_created
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
 
@@ -72,19 +107,16 @@ create policy "User kann Stammdaten bearbeiten"
 create table if not exists mietverhaeltnisse (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references profiles(id) on delete cascade,
-  -- Mieter
   mieter_name text,
   mieter_strasse text,
   mieter_plz text,
   mieter_ort text,
   mieter_email text,
   mieter_telefon text,
-  -- Objekt
   objekt_strasse text,
   objekt_plz text,
   objekt_ort text,
   objekt_bezeichnung text,
-  -- Konditionen
   mietbeginn date,
   mietende date,
   kaltmiete numeric(10,2),
@@ -210,7 +242,6 @@ values
   ('signaturen', 'signaturen', false)
 on conflict (id) do nothing;
 
--- Storage Policies: nur eigene Dateien (Pfad beginnt mit user_id)
 create policy "User kann eigene Dokumente hochladen"
   on storage.objects for insert
   with check (bucket_id = 'dokumente' and auth.uid()::text = (storage.foldername(name))[1]);

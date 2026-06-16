@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+:root {
+  --bone: #F3ECDD;
+  --linen: #FAF5EA;
+  --paper: #EDE5D2;
+  --ember: #D9A661;
+  --ember-deep: #C4913A;
+  --clay: #A8674F;
+  --oak: #8E6A40;
+  --ink: #1A1714;
+  --ink-mid: #2A2520;
+  --smoke: #8A8377;
+  --smoke-light: #C4BDB4;
+  --moss: #6E7253;
+}
+
+@theme inline {
+  --color-bone: var(--bone);
+  --color-linen: var(--linen);
+  --color-paper: var(--paper);
+  --color-ember: var(--ember);
+  --color-ember-deep: var(--ember-deep);
+  --color-clay: var(--clay);
+  --color-ink: var(--ink);
+  --color-smoke: var(--smoke);
+  --color-smoke-light: var(--smoke-light);
+  --font-display: var(--font-cormorant);
+  --font-body: var(--font-eb-garamond);
+  --font-label: var(--font-jost);
+}
+
+body {
+  background: var(--bone);
+  color: var(--ink);
+  font-family: var(--font-eb-garamond), Georgia, serif;
+}
