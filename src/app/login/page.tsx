@@ -69,7 +69,7 @@ export default function LoginPage() {
               placeholder="E-Mail-Adresse"
               value={email}
               onChange={e => { setEmail(e.target.value); setErrorMsg(null) }}
-              className="w-full px-4 py-3 rounded-lg border border-paper bg-bone text-ink placeholder-smoke-light font-body text-base focus:outline-none focus:border-ember transition-colors"
+              className="w-full px-4 py-3 rounded-lg border border-paper bg-white text-ink placeholder:text-smoke-light font-body text-base focus:outline-none focus:border-ink transition-colors"
               autoComplete="email"
             />
 
@@ -78,7 +78,7 @@ export default function LoginPage() {
               placeholder="Passwort"
               value={password}
               onChange={e => { setPassword(e.target.value); setErrorMsg(null) }}
-              className="w-full px-4 py-3 rounded-lg border border-paper bg-bone text-ink placeholder-smoke-light font-body text-base focus:outline-none focus:border-ember transition-colors"
+              className="w-full px-4 py-3 rounded-lg border border-paper bg-white text-ink placeholder:text-smoke-light font-body text-base focus:outline-none focus:border-ink transition-colors"
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
             />
             {passwordTooShort && (
@@ -92,7 +92,7 @@ export default function LoginPage() {
                   placeholder="Passwort bestätigen"
                   value={passwordConfirm}
                   onChange={e => { setPasswordConfirm(e.target.value); setErrorMsg(null) }}
-                  className={`w-full px-4 py-3 rounded-lg border bg-bone text-ink placeholder-smoke-light font-body text-base focus:outline-none focus:border-ember transition-colors ${!passwordsMatch ? 'border-clay' : 'border-paper'}`}
+                  className={`w-full px-4 py-3 rounded-lg border bg-white text-ink placeholder:text-smoke-light font-body text-base focus:outline-none focus:border-ink transition-colors ${!passwordsMatch ? 'border-clay' : 'border-paper'}`}
                   autoComplete="new-password"
                 />
                 {!passwordsMatch && (

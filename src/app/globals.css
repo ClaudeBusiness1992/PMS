@@ -3,15 +3,15 @@
 :root {
   --bone: #F3ECDD;
   --linen: #FAF5EA;
-  --paper: #EDE5D2;
+  --paper: #D6CCBA;       /* dunkler: war #EDE5D2, jetzt sichtbare Grenzlinie */
   --ember: #D9A661;
   --ember-deep: #C4913A;
   --clay: #A8674F;
   --oak: #8E6A40;
   --ink: #1A1714;
   --ink-mid: #2A2520;
-  --smoke: #8A8377;
-  --smoke-light: #C4BDB4;
+  --smoke: #5E5955;       /* dunkler: war #8A8377, jetzt 5.7:1 auf bone */
+  --smoke-light: #8A8377; /* war #C4BDB4 */
   --moss: #6E7253;
 }
 

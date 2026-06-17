@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -153,7 +153,7 @@ const VERTRAGSTYPEN = {
   moebliert: { label: "Möbliert / Befristet", untertitel: "Zeitmietvertrag über möblierten Wohnraum (§ 575 BGB)" },
 };
 
-const STATE_VERSION = 3;
+const STATE_VERSION = 4;
 
 const newVertrag = () => ({
   typ: "staffel",
@@ -164,8 +164,9 @@ const newVertrag = () => ({
   staffeln: [],
   index_basisjahr: "2020", index_basiswert: "", index_basismonat: "",
   kaution: "", kaution_raten: "1",
-  schluessel_wohnung: "2", schluessel_haus: "2", schluessel_briefkasten: "1", schluessel_sonstige: "",
-  tierhaltung: "kleintiere",
+  wasser_vz: "", hk_in_nk: true, staffel_erhoehung: "",
+  schluessel_wohnung: "2", schluessel_haus: "2", schluessel_briefkasten: "1",
+  schluessel_keller: "0", schluessel_dachboden: "0", schluessel_garage: "0",
   schoenheitsreparaturen_uebertragen: false,
   uebergabezustand: "renoviert",
   sonstige_vereinbarungen: "",
@@ -320,10 +321,19 @@ function migrate(loaded) {
     baujahr: o.baujahr || "", heizungsart: o.heizungsart || "", energieklasse: o.energieklasse || "",
     vermieter_ids: o.vermieter_ids || s.vermieter.map((v) => v.id),
     iban: o.iban || "", bank: o.bank || "", kontoinhaber: o.kontoinhaber || "",
-    einheiten: o.einheiten || [],
+    eigentuemer: o.eigentuemer || [],
+    einheiten: (o.einheiten || []).map((eh) => ({
+      hat_keller: false, hat_dachboden: false, hat_garage: false, hat_balkon: false,
+      hat_terrasse: false, hat_kueche: false, hat_gas_etagenheizung: false,
+      kueche_art: "", kueche_geraete: [], kueche_zustand: "", kueche_geraete_zustand: "",
+      heizkoerper: [], ...eh,
+    })),
   }));
   if (Array.isArray(loaded.mietverhaeltnisse) && loaded.mietverhaeltnisse.length) {
-    s.mietverhaeltnisse = loaded.mietverhaeltnisse.map((mv) => ({ ...newMietverhaeltnis(), ...mv }));
+    s.mietverhaeltnisse = loaded.mietverhaeltnisse.map((mv) => ({
+      ...newMietverhaeltnis(), ...mv,
+      vertrag: { ...newVertrag(), ...(mv.vertrag || {}), schluessel_sonstige: undefined },
+    }));
     s.aktuellesMVId = loaded.aktuellesMVId || s.mietverhaeltnisse[0].id;
   }
   if (loaded.hausordnung && loaded.hausordnung.paragraphen) s.hausordnung = loaded.hausordnung;
@@ -402,6 +412,19 @@ const zaehlerNr = (mv, einheit, feld) => {
   if (mv.uebergabe[feld] && mv.uebergabe[feld].trim()) return mv.uebergabe[feld];
   if (einheit && einheit[feld]) return einheit[feld];
   return "";
+};
+
+const generateStaffelAuto = (grundmiete, mietbeginn, erhoehung) => {
+  const base = parseFloat(String(grundmiete).replace(",", "."));
+  const delta = parseFloat(String(erhoehung).replace(",", "."));
+  if (!mietbeginn || isNaN(base) || isNaN(delta) || delta <= 0) return [];
+  const d = new Date(mietbeginn);
+  return Array.from({ length: 10 }, (_, i) => {
+    const dt = new Date(d);
+    dt.setFullYear(dt.getFullYear() + i + 1);
+    const label = dt.toLocaleDateString("de-DE", { day: "2-digit", month: "long", year: "numeric" });
+    return { datum: dt.toISOString().split("T")[0], label, betrag: base + delta * (i + 1) };
+  });
 };
 
 // ============================================================
@@ -643,7 +666,7 @@ function MietvertragPreview({ state }) {
   const vermieterList = getMVVermieter(state, mv);
   const { vertrag, personen: mieter } = mv;
   const typ = VERTRAGSTYPEN[vertrag.typ];
-  const gesamtMiete = (parseFloat(vertrag.grundmiete) || 0) + (parseFloat(vertrag.nk_vz) || 0) + (parseFloat(vertrag.hk_vz) || 0) + (vertrag.typ === "moebliert" ? parseFloat(vertrag.moebel_zuschlag) || 0 : 0);
+  const gesamtMiete = (parseFloat(vertrag.grundmiete) || 0) + (parseFloat(vertrag.nk_vz) || 0) + (vertrag.hk_in_nk ? 0 : parseFloat(vertrag.hk_vz) || 0) + (vertrag.hk_in_nk ? 0 : parseFloat(vertrag.wasser_vz) || 0) + (vertrag.typ === "moebliert" ? parseFloat(vertrag.moebel_zuschlag) || 0 : 0);
   let nextParaNum = 13;
 
   return (
@@ -758,13 +781,16 @@ function MietvertragPreview({ state }) {
       {vertrag.typ === "staffel" && (
         <>
           <SubText>(1) Die monatliche Nettokaltmiete beträgt bei Mietbeginn <strong>{fmtEUR(vertrag.grundmiete)}</strong>.</SubText>
-          <SubText>(2) Die Miete erhöht sich gemäß § 557a BGB wie folgt:</SubText>
-          {vertrag.staffeln && vertrag.staffeln.length > 0 ? (
+          <SubText>(2) Die Miete erhöht sich gemäß § 557a BGB jährlich um <strong>{fmtEUR(vertrag.staffel_erhoehung)}</strong>:</SubText>
+          {(() => { const staffeln = generateStaffelAuto(vertrag.grundmiete, vertrag.mietbeginn, vertrag.staffel_erhoehung); return staffeln.length > 0 ? (
             <table style={{ width: "100%", borderCollapse: "collapse", marginLeft: "20pt", marginTop: "4pt", fontSize: "10.5pt" }}>
-              <thead><tr style={{ borderBottom: "0.5pt solid #1A1714" }}><th style={{ textAlign: "left", padding: "3pt 0", width: "40%" }}>ab</th><th style={{ textAlign: "left", padding: "3pt 0" }}>neue Nettokaltmiete</th></tr></thead>
-              <tbody>{vertrag.staffeln.map((s, i) => (<tr key={i}><td style={{ padding: "3pt 0" }}>{fmtDate(s.datum)}</td><td style={{ padding: "3pt 0", fontWeight: 600 }}>{fmtEUR(s.betrag)}</td></tr>))}</tbody>
+              <thead><tr style={{ borderBottom: "0.5pt solid #1A1714" }}><th style={{ textAlign: "left", padding: "3pt 0", width: "40%" }}>Ab</th><th style={{ textAlign: "left", padding: "3pt 0" }}>Nettokaltmiete</th></tr></thead>
+              <tbody>
+                <tr><td style={{ padding: "3pt 0" }}>Mietbeginn ({fmtDate(vertrag.mietbeginn)})</td><td style={{ padding: "3pt 0", fontWeight: 600 }}>{fmtEUR(vertrag.grundmiete)}</td></tr>
+                {staffeln.map((s, i) => (<tr key={i}><td style={{ padding: "3pt 0" }}>{fmtDate(s.datum)}</td><td style={{ padding: "3pt 0", fontWeight: 600 }}>{fmtEUR(s.betrag)}</td></tr>))}
+              </tbody>
             </table>
-          ) : <SubText style={{ marginLeft: "20pt", color: "#8A8377" }}>– noch keine Staffeln eingetragen –</SubText>}
+          ) : <SubText style={{ marginLeft: "20pt", color: "#8A8377" }}>– Grundmiete, Mietbeginn und Erhöhung eingeben –</SubText>; })()}
           <SubText style={{ fontSize: "9.5pt", color: "#8A8377" }}>(3) Mieterhöhungen nach §§ 558 bis 559b BGB sind während der Geltung der Staffelmiete ausgeschlossen.</SubText>
         </>
       )}
@@ -809,7 +835,8 @@ function MietvertragPreview({ state }) {
       <SubText style={{ marginTop: "10pt" }}>Hinzu kommen:</SubText>
       <table style={{ width: "100%", borderCollapse: "collapse", marginLeft: "20pt", fontSize: "10.5pt" }}><tbody>
         <tr><td>Vorauszahlung auf Betriebskosten</td><td style={{ textAlign: "right" }}>{fmtEUR(vertrag.nk_vz)}</td></tr>
-        <tr><td>Vorauszahlung auf Heizkosten</td><td style={{ textAlign: "right" }}>{fmtEUR(vertrag.hk_vz)}</td></tr>
+        {!vertrag.hk_in_nk && <tr><td>Vorauszahlung auf Heizkosten</td><td style={{ textAlign: "right" }}>{fmtEUR(vertrag.hk_vz)}</td></tr>}
+        {!vertrag.hk_in_nk && <tr><td>Vorauszahlung auf Wasserkosten</td><td style={{ textAlign: "right" }}>{fmtEUR(vertrag.wasser_vz)}</td></tr>}
         <tr style={{ borderTop: "0.5pt solid #1A1714", fontWeight: 700 }}><td style={{ paddingTop: "4pt" }}>Gesamtmiete monatlich</td><td style={{ textAlign: "right", paddingTop: "4pt" }}>{fmtEUR(gesamtMiete)}</td></tr>
       </tbody></table>
       <SubText style={{ marginTop: "10pt" }}>Die Miete ist monatlich im Voraus, spätestens am <strong>{fallback(vertrag.zahlungstag, "3.")}</strong> Werktag des Monats, kostenfrei auf folgendes Konto zu zahlen:</SubText>
@@ -847,11 +874,7 @@ function MietvertragPreview({ state }) {
       <SubText>(2) Untervermietung bedarf der vorherigen Erlaubnis des Vermieters (§ 540 BGB). Ein Anspruch besteht nach § 553 BGB bei berechtigtem Interesse.</SubText>
 
       <ParagraphHeader nummer="8" titel="Tierhaltung" />
-      <SubText>
-        {vertrag.tierhaltung === "verboten" && "Die Haltung von Tieren ist ohne Zustimmung des Vermieters nicht gestattet. Kleintiere in haushaltsüblichem Umfang sind erlaubnisfrei zulässig."}
-        {vertrag.tierhaltung === "kleintiere" && "Die Haltung von Kleintieren in haushaltsüblichem Umfang ist gestattet. Hunde und Katzen bedürfen der vorherigen Zustimmung des Vermieters, die nur aus wichtigem Grund verweigert werden darf."}
-        {vertrag.tierhaltung === "auf_anfrage" && "Jegliche Tierhaltung außer Kleintieren in haushaltsüblichem Umfang bedarf der vorherigen schriftlichen Zustimmung."}
-      </SubText>
+      <SubText>Die Tierhaltung ist grundsätzlich gestattet. Sie bedarf jedoch der vorherigen schriftlichen Zustimmung des Vermieters.</SubText>
 
       <ParagraphHeader nummer="9" titel="Schlüssel" />
       <SubText>(1) Bei Vertragsbeginn werden übergeben:</SubText>
@@ -859,7 +882,9 @@ function MietvertragPreview({ state }) {
         Wohnungsschlüssel: {fallback(vertrag.schluessel_wohnung)} Stück<br />
         Haustürschlüssel: {fallback(vertrag.schluessel_haus)} Stück<br />
         Briefkastenschlüssel: {fallback(vertrag.schluessel_briefkasten)} Stück
-        {vertrag.schluessel_sonstige && <><br />Sonstige: {vertrag.schluessel_sonstige}</>}
+        {vertrag.schluessel_keller && vertrag.schluessel_keller !== "0" && <><br />Kellerschlüssel: {vertrag.schluessel_keller} Stück</>}
+        {vertrag.schluessel_dachboden && vertrag.schluessel_dachboden !== "0" && <><br />Dachbodenschlüssel: {vertrag.schluessel_dachboden} Stück</>}
+        {vertrag.schluessel_garage && vertrag.schluessel_garage !== "0" && <><br />Garagenschlüssel: {vertrag.schluessel_garage} Stück</>}
       </SubText>
       <SubText style={{ fontSize: "9.5pt", color: "#8A8377" }}>(2) Die Anfertigung weiterer Schlüssel ist nur mit Zustimmung zulässig. Bei Vertragsende sind alle Schlüssel zurückzugeben.</SubText>
 
@@ -969,7 +994,9 @@ function UebergabeprotokollPreview({ state }) {
         Wohnungsschlüssel: {fallback(vertrag.schluessel_wohnung)} Stück<br />
         Haustürschlüssel: {fallback(vertrag.schluessel_haus)} Stück<br />
         Briefkastenschlüssel: {fallback(vertrag.schluessel_briefkasten)} Stück
-        {vertrag.schluessel_sonstige && <><br />Sonstige: {vertrag.schluessel_sonstige}</>}
+        {vertrag.schluessel_keller && vertrag.schluessel_keller !== "0" && <><br />Kellerschlüssel: {vertrag.schluessel_keller} Stück</>}
+        {vertrag.schluessel_dachboden && vertrag.schluessel_dachboden !== "0" && <><br />Dachbodenschlüssel: {vertrag.schluessel_dachboden} Stück</>}
+        {vertrag.schluessel_garage && vertrag.schluessel_garage !== "0" && <><br />Garagenschlüssel: {vertrag.schluessel_garage} Stück</>}
       </SubText>
       <h3 style={zh()}>4. Rauchwarnmelder</h3>
       <SubText>Anzahl: {fallback(uebergabe.rauchmelder_anzahl)} Stück. Funktion geprüft: {uebergabe.rauchmelder_funktion ? "☒ ja  ☐ nein" : "☐ ja  ☒ nein"}. Hinweis auf § 48 LBauO Bremen: Rauchwarnmelder sind vorgeschrieben, Betriebsbereitschaft ist sicherzustellen.</SubText>
@@ -1580,7 +1607,7 @@ function StammdatenForm({ state, setState }) {
   const removeVermieter = (id) => setState((s) => ({ ...s, vermieter: s.vermieter.filter((vm) => vm.id !== id), objekte: s.objekte.map((o) => ({ ...o, vermieter_ids: o.vermieter_ids.filter((vid) => vid !== id) })) }));
   const addObjekt = () => {
     const id = `obj_${Date.now()}`;
-    setState((s) => ({ ...s, objekte: [...s.objekte, { id, name: "", adresse: "", plz_ort: "", baujahr: "", heizungsart: "", energieklasse: "", vermieter_ids: s.vermieter.map((v) => v.id), iban: "", bank: "", kontoinhaber: "", einheiten: [] }] }));
+    setState((s) => ({ ...s, objekte: [...s.objekte, { id, name: "", adresse: "", plz_ort: "", baujahr: "", heizungsart: "", energieklasse: "", vermieter_ids: s.vermieter.map((v) => v.id), iban: "", bank: "", kontoinhaber: "", eigentuemer: [], einheiten: [] }] }));
   };
   const updateObjekt = (id, k, v) => setState((s) => ({ ...s, objekte: s.objekte.map((o) => o.id === id ? { ...o, [k]: v } : o) }));
   const deleteObjekt = (id) => {
@@ -1590,7 +1617,11 @@ function StammdatenForm({ state, setState }) {
   const toggleVAssign = (objId, vmId) => setState((s) => ({ ...s, objekte: s.objekte.map((o) => { if (o.id !== objId) return o; const has = o.vermieter_ids.includes(vmId); return { ...o, vermieter_ids: has ? o.vermieter_ids.filter((x) => x !== vmId) : [...o.vermieter_ids, vmId] }; }) }));
   const addEinheit = (objId) => {
     const newEh = { id: `eh_${Date.now()}`, bezeichnung: "", etage: "", lage: "", zimmer: "", wohnflaeche: "", nebenraeume: "",
-      strom_nr: "", gas_nr: "", wasser_kalt_nr: "", wasser_warm_nr: "", heizung_nr: "" };
+      strom_nr: "", gas_nr: "", wasser_kalt_nr: "", wasser_warm_nr: "", heizung_nr: "",
+      hat_keller: false, hat_dachboden: false, hat_garage: false, hat_balkon: false,
+      hat_terrasse: false, hat_kueche: false, hat_gas_etagenheizung: false,
+      kueche_art: "", kueche_geraete: [], kueche_zustand: "", kueche_geraete_zustand: "",
+      heizkoerper: [] };
     setState((s) => ({ ...s, objekte: s.objekte.map((o) => o.id === objId ? { ...o, einheiten: [...o.einheiten, newEh] } : o) }));
   };
   const updateEinheit = (objId, ehId, k, v) => setState((s) => ({ ...s, objekte: s.objekte.map((o) => o.id !== objId ? o : { ...o, einheiten: o.einheiten.map((eh) => eh.id === ehId ? { ...eh, [k]: v } : eh) }) }));
@@ -1674,6 +1705,18 @@ function StammdatenForm({ state, setState }) {
               <Input value={o.bank} onChange={(e) => updateObjekt(o.id, "bank", e.target.value)} placeholder="Bank" />
             </div>
             <div className="pt-2 border-t border-stone-200">
+              <div className="flex items-center justify-between mb-1">
+                <Label>Eigentümer</Label>
+                <Btn variant="ghost" size="sm" icon="plus" onClick={() => updateObjekt(o.id, "eigentuemer", [...(o.eigentuemer || []), { id: `eg_${Date.now()}`, name: "" }])}>Eigentümer</Btn>
+              </div>
+              {(o.eigentuemer || []).map((eg, egIdx) => (
+                <div key={eg.id} className="flex items-center gap-2 mt-1">
+                  <Input value={eg.name} onChange={(e) => updateObjekt(o.id, "eigentuemer", (o.eigentuemer || []).map((x, xi) => xi === egIdx ? { ...x, name: e.target.value } : x))} placeholder="Name des Eigentümers" />
+                  <Btn variant="ghost" size="sm" icon="trash" onClick={() => updateObjekt(o.id, "eigentuemer", (o.eigentuemer || []).filter((_, xi) => xi !== egIdx))}> </Btn>
+                </div>
+              ))}
+            </div>
+            <div className="pt-2 border-t border-stone-200">
               <div className="flex items-center justify-between mb-2">
                 <Label>Einheiten (Wohnungen)</Label>
                 <Btn variant="ghost" size="sm" icon="plus" onClick={() => addEinheit(o.id)}>Einheit</Btn>
@@ -1704,6 +1747,37 @@ function StammdatenForm({ state, setState }) {
                         <Input value={eh.wasser_warm_nr || ""} onChange={(e) => updateEinheit(o.id, eh.id, "wasser_warm_nr", e.target.value)} placeholder="Wasser warm" />
                         <Input value={eh.heizung_nr || ""} onChange={(e) => updateEinheit(o.id, eh.id, "heizung_nr", e.target.value)} placeholder="Heizung / Heizkostenverteiler" className="col-span-2" />
                       </div>
+                    </div>
+                    <div className="pt-2 border-t border-stone-200">
+                      <Label>Ausstattung</Label>
+                      <div className="grid grid-cols-2 gap-1 mt-1">
+                        {[["hat_keller","Keller"],["hat_dachboden","Dachboden"],["hat_garage","Garage"],["hat_balkon","Balkon"],["hat_terrasse","Terrasse"],["hat_kueche","Küche eingebaut"],["hat_gas_etagenheizung","Gas-Etagenheizung"]].map(([key,label]) => (
+                          <label key={key} className="flex items-center gap-1.5 text-xs cursor-pointer"><input type="checkbox" checked={!!eh[key]} onChange={(e) => updateEinheit(o.id, eh.id, key, e.target.checked)} className="w-3.5 h-3.5 accent-stone-900" />{label}</label>
+                        ))}
+                      </div>
+                    </div>
+                    {eh.hat_kueche && (
+                      <div className="pt-2 border-t border-stone-200 space-y-2">
+                        <Label>Küche</Label>
+                        <Input value={eh.kueche_art || ""} onChange={(e) => updateEinheit(o.id, eh.id, "kueche_art", e.target.value)} placeholder="Art (z. B. Einbauküche)" />
+                        <Input value={eh.kueche_zustand || ""} onChange={(e) => updateEinheit(o.id, eh.id, "kueche_zustand", e.target.value)} placeholder="Zustand Küche" />
+                        <Input value={eh.kueche_geraete_zustand || ""} onChange={(e) => updateEinheit(o.id, eh.id, "kueche_geraete_zustand", e.target.value)} placeholder="Zustand Elektrogeräte" />
+                      </div>
+                    )}
+                    <div className="pt-2 border-t border-stone-200">
+                      <div className="flex items-center justify-between">
+                        <Label>Heizkörper / Heizkostenverteiler</Label>
+                        <Btn variant="ghost" size="sm" icon="plus" onClick={() => updateEinheit(o.id, eh.id, "heizkoerper", [...(eh.heizkoerper || []), { id: `hk_${Date.now()}`, raum: "", position: "", nummer: "", stand: "" }])}>HK</Btn>
+                      </div>
+                      {(eh.heizkoerper || []).map((hk, hki) => (
+                        <div key={hk.id} className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-1 mt-1 items-end">
+                          <Input value={hk.raum} onChange={(e) => { const arr=[...(eh.heizkoerper||[])]; arr[hki]={...arr[hki],raum:e.target.value}; updateEinheit(o.id,eh.id,"heizkoerper",arr); }} placeholder="Raum" />
+                          <Input value={hk.position} onChange={(e) => { const arr=[...(eh.heizkoerper||[])]; arr[hki]={...arr[hki],position:e.target.value}; updateEinheit(o.id,eh.id,"heizkoerper",arr); }} placeholder="Position" />
+                          <Input value={hk.nummer} onChange={(e) => { const arr=[...(eh.heizkoerper||[])]; arr[hki]={...arr[hki],nummer:e.target.value}; updateEinheit(o.id,eh.id,"heizkoerper",arr); }} placeholder="Nr." />
+                          <Input value={hk.stand} onChange={(e) => { const arr=[...(eh.heizkoerper||[])]; arr[hki]={...arr[hki],stand:e.target.value}; updateEinheit(o.id,eh.id,"heizkoerper",arr); }} placeholder="Stand" />
+                          <Btn variant="ghost" size="sm" icon="trash" onClick={() => updateEinheit(o.id,eh.id,"heizkoerper",(eh.heizkoerper||[]).filter((_,xi)=>xi!==hki))}> </Btn>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ))}
@@ -1830,6 +1904,33 @@ function VertragForm({ state, setState }) {
         {objekt ? <> · {objekt.name || objekt.adresse}</> : <> · <em>kein Objekt zugeordnet</em></>}
         {einheit ? <> · {einheit.bezeichnung}</> : (objekt && <> · <em>keine Einheit zugeordnet</em></>)}
       </InfoBox>
+      <div className="p-4 bg-bone border border-ink/15 rounded-sm space-y-4">
+        <p className="font-label text-[10px] uppercase tracking-[0.22em] text-smoke">Vertragsoptionen</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Vertragstyp</Label>
+            <div className="flex gap-2">
+              {Object.entries(VERTRAGSTYPEN).map(([k, v]) => (
+                <button key={k} onClick={() => updateVertrag("typ", k)} className={`flex-1 py-1.5 border font-label text-[10px] uppercase tracking-widest transition ${mv.vertrag.typ === k ? "border-ink bg-ink text-bone" : "border-stone-300 bg-white text-ink hover:border-stone-500"}`}>
+                  {v.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-2">
+            <div className={`p-2 border rounded ${mv.vertrag.uebergabezustand === "unrenoviert" ? "bg-stone-50 border-stone-300" : "bg-white border-stone-200"}`}>
+              <Label>Übergabezustand</Label>
+              <div className="flex gap-2 mt-1">
+                {["renoviert","unrenoviert"].map((v) => <button key={v} onClick={() => updateVertrag("uebergabezustand", v)} className={`flex-1 text-xs py-1 border transition ${mv.vertrag.uebergabezustand === v ? "border-ink bg-ink text-bone" : "border-stone-300 bg-white text-ink hover:border-stone-500"}`}>{v}</button>)}
+              </div>
+            </div>
+            <label className={`flex items-center gap-2 cursor-pointer p-2 border rounded ${mv.vertrag.uebergabezustand === "unrenoviert" ? "opacity-50 border-stone-200" : "border-red-200 bg-red-50"}`}>
+              <input type="checkbox" checked={mv.vertrag.schoenheitsreparaturen_uebertragen && mv.vertrag.uebergabezustand === "renoviert"} disabled={mv.vertrag.uebergabezustand === "unrenoviert"} onChange={(e) => updateVertrag("schoenheitsreparaturen_uebertragen", e.target.checked)} className="w-4 h-4 accent-stone-900" />
+              <span className="text-xs">Schönheitsreparaturen übertragen</span>
+            </label>
+          </div>
+        </div>
+      </div>
       <Section title="Vertragstyp" icon="fileText">
         <div className="grid grid-cols-3 gap-2">
           {Object.entries(VERTRAGSTYPEN).map(([k, v]) => (
@@ -1924,8 +2025,10 @@ function VertragForm({ state, setState }) {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div><Label>Betriebskosten-VZ €</Label><Input value={mv.vertrag.nk_vz} onChange={(e) => updateVertrag("nk_vz", e.target.value)} placeholder="80,00" /></div>
-          <div><Label>Heizkosten-VZ €</Label><Input value={mv.vertrag.hk_vz} onChange={(e) => updateVertrag("hk_vz", e.target.value)} placeholder="100,00" /></div>
+          {!mv.vertrag.hk_in_nk && <div><Label>Heizkosten-VZ €</Label><Input value={mv.vertrag.hk_vz} onChange={(e) => updateVertrag("hk_vz", e.target.value)} placeholder="100,00" /></div>}
+          {!mv.vertrag.hk_in_nk && <div><Label>Wasser-VZ €</Label><Input value={mv.vertrag.wasser_vz || ""} onChange={(e) => updateVertrag("wasser_vz", e.target.value)} placeholder="30,00" /></div>}
         </div>
+        <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={!!mv.vertrag.hk_in_nk} onChange={(e) => updateVertrag("hk_in_nk", e.target.checked)} className="w-4 h-4 accent-stone-900" /><span className="text-sm">Heizung &amp; Wasser in Betriebskosten enthalten</span></label>
         <div><Label>Zahlbar bis zum ... Werktag</Label><Input value={mv.vertrag.zahlungstag} onChange={(e) => updateVertrag("zahlungstag", e.target.value)} placeholder="3" /></div>
         {mv.vertrag.typ === "moebliert" && (
           <div className="mt-2 p-3 bg-stone-100 border border-stone-300 rounded-lg space-y-2">
@@ -1938,17 +2041,19 @@ function VertragForm({ state, setState }) {
             <p className="text-xs text-stone-600">Bei kurzer Befristung (≤ 12 Monate) ist eine Indexanpassung wirkungslos – frühestens 12 Monate nach Mietbeginn anpassbar.</p>
           </div>
         )}
-        {(mv.vertrag.typ === "staffel" || (mv.vertrag.typ === "moebliert" && mv.vertrag.moebliert_anpassung === "staffel")) && (
+        {mv.vertrag.typ === "staffel" && (
           <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-3">
-            <div className="flex items-center justify-between"><Label>Mietstaffeln</Label><Btn variant="ghost" size="sm" icon="plus" onClick={addStaffel}>Staffel</Btn></div>
-            {mv.vertrag.staffeln.length === 0 && <p className="text-xs text-stone-500 italic">Jede Staffel muss mind. 12 Monate auseinander liegen.</p>}
-            {mv.vertrag.staffeln.map((s, i) => (
-              <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2 items-end">
-                <div><Label>ab</Label><Input type="date" value={s.datum} onChange={(e) => updateStaffel(i, "datum", e.target.value)} /></div>
-                <div><Label>neue Miete €</Label><Input value={s.betrag} onChange={(e) => updateStaffel(i, "betrag", e.target.value)} /></div>
-                <Btn variant="ghost" size="sm" icon="trash" onClick={() => removeStaffel(i)}> </Btn>
-              </div>
-            ))}
+            <div><Label>Jährliche Erhöhung €</Label><Input value={mv.vertrag.staffel_erhoehung || ""} onChange={(e) => updateVertrag("staffel_erhoehung", e.target.value)} placeholder="z. B. 15,00" /></div>
+            {mv.vertrag.staffel_erhoehung && !mv.vertrag.mietbeginn && <p className="text-xs text-stone-500 italic">Mietbeginn eingeben um Staffeln zu berechnen.</p>}
+            {(() => { const staffeln = generateStaffelAuto(mv.vertrag.grundmiete, mv.vertrag.mietbeginn, mv.vertrag.staffel_erhoehung); return staffeln.length > 0 && (
+              <div className="overflow-auto"><table className="w-full text-xs border-collapse">
+                <thead><tr className="border-b border-amber-300"><th className="text-left py-1">Ab</th><th className="text-right py-1">Kaltmiete</th></tr></thead>
+                <tbody>
+                  <tr className="border-b border-amber-200"><td className="py-1">Mietbeginn</td><td className="py-1 text-right font-semibold">{fmtEUR(mv.vertrag.grundmiete)}</td></tr>
+                  {staffeln.map((s, i) => <tr key={i} className="border-b border-amber-200"><td className="py-1">{s.label}</td><td className="py-1 text-right font-semibold">{fmtEUR(s.betrag)}</td></tr>)}
+                </tbody>
+              </table></div>
+            ); })()}
           </div>
         )}
         {(mv.vertrag.typ === "index" || (mv.vertrag.typ === "moebliert" && mv.vertrag.moebliert_anpassung === "index")) && (
@@ -1983,34 +2088,13 @@ function VertragForm({ state, setState }) {
           <div><Label>Wohnung</Label><Input value={mv.vertrag.schluessel_wohnung} onChange={(e) => updateVertrag("schluessel_wohnung", e.target.value)} /></div>
           <div><Label>Haustür</Label><Input value={mv.vertrag.schluessel_haus} onChange={(e) => updateVertrag("schluessel_haus", e.target.value)} /></div>
           <div><Label>Briefkasten</Label><Input value={mv.vertrag.schluessel_briefkasten} onChange={(e) => updateVertrag("schluessel_briefkasten", e.target.value)} /></div>
+          {einheit && einheit.hat_keller && <div><Label>Keller</Label><Input value={mv.vertrag.schluessel_keller || "0"} onChange={(e) => updateVertrag("schluessel_keller", e.target.value)} /></div>}
+          {einheit && einheit.hat_dachboden && <div><Label>Dachboden</Label><Input value={mv.vertrag.schluessel_dachboden || "0"} onChange={(e) => updateVertrag("schluessel_dachboden", e.target.value)} /></div>}
+          {einheit && einheit.hat_garage && <div><Label>Garage</Label><Input value={mv.vertrag.schluessel_garage || "0"} onChange={(e) => updateVertrag("schluessel_garage", e.target.value)} /></div>}
         </div>
-        <div><Label>Sonstige</Label><Input value={mv.vertrag.schluessel_sonstige} onChange={(e) => updateVertrag("schluessel_sonstige", e.target.value)} placeholder="z. B. Keller, Boden" /></div>
       </Section>
       <Section title="Weitere Vereinbarungen" icon="scroll">
-        <div>
-          <Label>Übergabezustand der Wohnung</Label>
-          <Select value={mv.vertrag.uebergabezustand} onChange={(e) => updateVertrag("uebergabezustand", e.target.value)}>
-            <option value="renoviert">renoviert</option>
-            <option value="unrenoviert">unrenoviert</option>
-          </Select>
-          <p className="text-xs text-stone-500 mt-1">Bei „unrenoviert" wird Schönheitsreparaturen-Übertragung automatisch deaktiviert (BGH VIII ZR 185/14).</p>
-        </div>
-        <div>
-          <Label>Tierhaltung</Label>
-          <Select value={mv.vertrag.tierhaltung} onChange={(e) => updateVertrag("tierhaltung", e.target.value)}>
-            <option value="kleintiere">Kleintiere erlaubt, Hund/Katze auf Anfrage</option>
-            <option value="auf_anfrage">Nur Kleintiere, alles andere auf Anfrage</option>
-            <option value="verboten">Kein Hund/Katze ohne Zustimmung</option>
-          </Select>
-        </div>
-        <div className={`flex items-start gap-3 p-3 border rounded-md ${mv.vertrag.uebergabezustand === "unrenoviert" ? "bg-stone-100 border-stone-300 opacity-60" : "bg-red-50 border-red-200"}`}>
-          <input type="checkbox" checked={mv.vertrag.schoenheitsreparaturen_uebertragen && mv.vertrag.uebergabezustand === "renoviert"} disabled={mv.vertrag.uebergabezustand === "unrenoviert"} onChange={(e) => updateVertrag("schoenheitsreparaturen_uebertragen", e.target.checked)} className="mt-1 w-4 h-4 accent-stone-900" />
-          <div className="flex-1">
-            <span className="text-sm font-medium text-stone-900">Schönheitsreparaturen auf Mieter übertragen</span>
-            <p className="text-xs text-red-800 mt-1">{mv.vertrag.uebergabezustand === "unrenoviert" ? "Bei unrenovierter Übergabe rechtlich unwirksam (BGH VIII ZR 185/14)." : "Nur wirksam bei renovierter Übergabe."}</p>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-3">
           <div>
             <Label>Kleinreparatur-Grenze € / Einzelfall</Label>
             <Input value={mv.vertrag.kleinreparatur_einzelfall} onChange={(e) => updateVertrag("kleinreparatur_einzelfall", e.target.value)} />
@@ -3207,6 +3291,82 @@ async function exportCurrentDocx(state, previewDoc) {
 }
 
 
+function ArchivTab({ state }) {
+  const [openObjekte, setOpenObjekte] = React.useState({});
+  const [openEinheiten, setOpenEinheiten] = React.useState({});
+
+  const toggleObj = (id) => setOpenObjekte((s) => ({ ...s, [id]: !s[id] }));
+  const toggleEh = (id) => setOpenEinheiten((s) => ({ ...s, [id]: !s[id] }));
+
+  const getMVsForEinheit = (ehId) => state.mietverhaeltnisse
+    .filter((mv) => mv.einheit_id === ehId)
+    .sort((a, b) => (b.vertrag.mietbeginn || "").localeCompare(a.vertrag.mietbeginn || ""));
+
+  const sortedObjekte = [...state.objekte].sort((a, b) => (a.adresse || a.name || "").localeCompare(b.adresse || b.name || ""));
+
+  if (sortedObjekte.length === 0) {
+    return <InfoBox variant="info">Noch keine Objekte angelegt. Stammdaten zuerst erfassen.</InfoBox>;
+  }
+
+  return (
+    <div className="space-y-3">
+      <InfoBox variant="info">Alle Mietverhältnisse nach Objekt und Einheit geordnet. Aktiv = laufendes Mietverhältnis.</InfoBox>
+      {sortedObjekte.map((o) => (
+        <div key={o.id} className="border border-ink/15 rounded-sm overflow-hidden">
+          <button className="w-full flex items-center justify-between px-4 py-3 bg-bone hover:bg-linen transition text-left" onClick={() => toggleObj(o.id)}>
+            <span className="font-label text-[10px] uppercase tracking-[0.22em] text-ink">{o.adresse || o.name || "(kein Name)"}{o.plz_ort && <>, {o.plz_ort}</>}</span>
+            <Icon name={openObjekte[o.id] ? "chevronUp" : "chevronDown"} size={14} className="text-smoke" />
+          </button>
+          {openObjekte[o.id] && (
+            <div className="px-4 pb-3 space-y-2 bg-linen">
+              {o.einheiten.length === 0 && <p className="text-xs text-smoke italic py-2">Keine Einheiten erfasst.</p>}
+              {o.einheiten.map((eh) => {
+                const mvs = getMVsForEinheit(eh.id);
+                const aktiveMVs = mvs.filter((mv) => mv.status !== "beendet");
+                return (
+                  <div key={eh.id} className="border border-paper rounded-sm overflow-hidden">
+                    <button className="w-full flex items-center justify-between px-3 py-2 bg-white hover:bg-bone transition text-left" onClick={() => toggleEh(eh.id)}>
+                      <span className="text-sm text-ink">{eh.bezeichnung || eh.etage || "(Einheit)"}</span>
+                      <div className="flex items-center gap-2">
+                        {aktiveMVs.length > 0 ? (
+                          <span className="font-label text-[9px] uppercase tracking-wider px-2 py-0.5 bg-moss/15 text-moss rounded-sm">Aktiv</span>
+                        ) : (
+                          <span className="font-label text-[9px] uppercase tracking-wider px-2 py-0.5 bg-stone-100 text-smoke rounded-sm">Leer</span>
+                        )}
+                        <Icon name={openEinheiten[eh.id] ? "chevronUp" : "chevronDown"} size={12} className="text-smoke" />
+                      </div>
+                    </button>
+                    {openEinheiten[eh.id] && (
+                      <div className="px-3 pb-2 pt-1 bg-white border-t border-paper space-y-1">
+                        {mvs.length === 0 && <p className="text-xs text-smoke italic">Kein Mietverhältnis.</p>}
+                        {mvs.map((mv) => {
+                          const isAktiv = mv.status !== "beendet";
+                          const mieterName = mv.personen.map((p) => p.name).filter(Boolean).join(", ") || "(kein Name)";
+                          return (
+                            <div key={mv.id} className={`p-2 rounded border text-xs ${isAktiv ? "border-moss/30 bg-moss/5" : "border-paper bg-bone"}`}>
+                              <div className="flex items-center justify-between">
+                                <span className={`font-semibold ${isAktiv ? "text-ink" : "text-smoke"}`}>{mieterName}</span>
+                                <span className={`font-label text-[9px] uppercase tracking-wider ${isAktiv ? "text-moss" : "text-smoke"}`}>{isAktiv ? "Aktiv" : "Beendet"}</span>
+                              </div>
+                              <div className="text-smoke mt-0.5">
+                                {mv.vertrag.mietbeginn && <span>ab {fmtDateShort(mv.vertrag.mietbeginn)}</span>}
+                                {mv.vertrag.grundmiete && <span> · {fmtEUR(mv.vertrag.grundmiete)} kalt</span>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
 const TABS = [
   { id: "stamm", label: "Stammdaten", icon: "user" },
   { id: "mieter", label: "Mietverhältnisse", icon: "users" },
@@ -3216,6 +3376,7 @@ const TABS = [
   { id: "hausordnung", label: "Hausordnung", icon: "scroll" },
   { id: "anlagen", label: "Anlagen", icon: "shield" },
   { id: "schreiben", label: "Schreiben", icon: "bell" },
+  { id: "archiv", label: "Archiv", icon: "archive" },
 ];
 
 const DOC_PREVIEWS = {
@@ -3352,6 +3513,7 @@ function App() {
           {tab === "hausordnung" && <HausordnungForm state={state} setState={setState} />}
           {tab === "anlagen" && <AnlagenForm state={state} setState={setState} previewDoc={previewDoc} setPreviewDoc={setPreviewDoc} />}
           {tab === "schreiben" && <SchreibenForm state={state} setState={setState} previewDoc={previewDoc} setPreviewDoc={setPreviewDoc} />}
+          {tab === "archiv" && <ArchivTab state={state} />}
           <div className="mt-10 pt-6 border-t border-ink/10">
             <InfoBox variant="legal"><strong className="font-label text-[10px] tracking-[0.22em] uppercase">Rechtshinweis</strong><br/>Dieses Werkzeug erstellt marktübliche Mietvertragsvorlagen. Es ersetzt keine anwaltliche Beratung. Lass die Vorlage einmal von einem Fachanwalt für Mietrecht oder Haus &amp; Grund prüfen, insbesondere die Klausel zu Schönheitsreparaturen.</InfoBox>
           </div>
