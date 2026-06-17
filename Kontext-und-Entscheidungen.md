@@ -1,6 +1,6 @@
 # PMS — Kontext & Entscheidungen
 
-Gesprächsprotokoll vom 2026-06-16. Dokumentiert Ausgangslage, Ziele und alle getroffenen Entscheidungen für die Migration der Verwaltungs-App.
+Dokumentiert Ausgangslage, Ziele und alle getroffenen Entscheidungen für die PMS Web-App.
 
 ---
 
@@ -33,45 +33,33 @@ Daten sind nur im Browser lokal verfügbar. Kein geräteübergreifender Zugriff,
 - E-Mail-basiertes Account-System (Nick + Philipp)
 - Online-Signatur (digitales Unterschreiben direkt in der App)
 - Datei-Speicherung (PDFs, Fotos) in der Cloud
-- Später: iOS- und Android-App aus derselben Codebasis
+- Später: iOS- und Android-App (separates Projekt, falls gewünscht)
 
 ---
 
 ## Entscheidungen
 
-### Stack: Claudia (nicht Next.js)
+### Stack: Eigenständige Next.js-App
 
-**Entscheidung:** Das PMS wird als Feature-Modul `src/features/verwaltung/` in die bestehende **Claudia**-App integriert. Kein neues Repo, kein neues Framework.
+**Entscheidung:** PMS ist ein **vollständig eigenständiges Projekt** — eigenes Repo, eigenes Supabase-Projekt, eigenes Vercel-Deployment. Keine Vermischung mit anderen Projekten (insbesondere nicht mit Claudia).
 
-**Grund:** Claudia ist bereits eine Expo-App (React Native + Web) mit:
-- Supabase Auth (Login, Sessions)
-- Supabase JS Client
-- Supabase Storage (`storage.ts`)
-- Einladungssystem für weitere User
-- i18n (DE/EN)
-- RevenueCat (Abo, falls später relevant)
-
-Alles was das PMS braucht ist in Claudia bereits vorhanden.
-
-### Framework: Expo (React Native + Web)
-
-Expo Router ermöglicht eine einzige Codebasis für Web, iOS und Android. Der Web-Build wird auf Vercel deployed. iOS/Android läuft durch das bestehende Expo-Setup in Claudia automatisch.
-
-### Mobile: Expo (kein Capacitor, kein separates React Native Projekt)
-
-Da Claudia bereits Expo nutzt und die App damit auf Web, iOS und Android läuft, wird kein separates Wrapping via Capacitor benötigt.
-
-### Signatur: react-native-signature-canvas
-
-Für die Online-Signatur wird `react-native-signature-canvas` eingebunden. Signaturen werden als PNG in Supabase Storage (Bucket `signaturen`) gespeichert und in Dokumente eingebettet.
+**Stack:**
+- Framework: Next.js 16 (App Router, TypeScript, Tailwind)
+- Auth + DB + Storage: Supabase (eigene Instanz, Project-ID `tkiqecnzjrqhrlesnjtg`)
+- Hosting: Vercel
+- E-Mail: Resend (SMTP, noch offen)
 
 ### User: Nick und Philipp
 
-Nur zwei Accounts. Philipp wird über das bereits vorhandene Claudia-Einladungssystem eingeladen. RLS in Supabase stellt sicher, dass beide auf dieselben Daten zugreifen können.
+Nur zwei Accounts. Philipp wird direkt über Supabase Auth eingeladen. RLS in Supabase stellt sicher, dass beide auf dieselben Daten zugreifen können.
 
-### Datenbank: Neues Schema in Claudia
+### Datenbank: Eigene Supabase-Instanz
 
-Migration `016_pms_schema.sql` in `Claudia/supabase/migrations/`. Tabellen: `stammdaten`, `mietverhaeltnisse`, `vertraege`, `dokumente`, `signaturen`. Alle mit RLS.
+Migration `supabase/migrations/001_pms_schema.sql` im PMS-Repo. Tabellen: `profiles`, `stammdaten`, `mietverhaeltnisse`, `vertraege`, `dokumente`, `signaturen`. Alle mit RLS.
+
+### Signatur: react-signature-canvas oder ähnliches Web-Package
+
+Für die Online-Signatur wird ein Web-kompatibles Canvas-Package eingebunden. Signaturen werden als PNG in Supabase Storage (Bucket `signaturen`) gespeichert.
 
 ---
 
@@ -79,16 +67,15 @@ Migration `016_pms_schema.sql` in `Claudia/supabase/migrations/`. Tabellen: `sta
 
 | Was | Pfad / Repo |
 |---|---|
-| Aktives Entwicklungs-Repo | `C:\ClaudeBusiness\Claudia\` (ClaudeBusiness1992/Claudia) |
+| Aktives Entwicklungs-Repo | `C:\ClaudeBusiness\PMS\` (ClaudeBusiness1992/PMS) |
 | Ausgangsbasis (HTML) | `C:\ClaudeBusiness\PMS\Verwaltung.html` |
 | Obsidian-Vault (Tasks) | `C:\ClaudeBusiness\Orga-und-Allgemeines\PMS Obsidian\` |
 | Orga-Repo | `C:\ClaudeBusiness\Orga-und-Allgemeines\` (ClaudeBusiness1992/Orga-und-Allgemeines) |
 
 ---
 
-## Offene Fragen (Stand 2026-06-16)
+## Offene Fragen
 
-- Soll das PMS ein eigener Tab in Claudia sein oder eine separate Navigation?
-- DOCX-Export beibehalten oder reicht PDF via `expo-print`?
+- DOCX-Export beibehalten oder reicht PDF via `window.print()` / eine PDF-Library?
 - Eigene Domain für den Web-Build? (z.B. `verwaltung.glowgiver.de`)
 - Soll Philipp alle Mietverhältnisse sehen oder nur bestimmte?
